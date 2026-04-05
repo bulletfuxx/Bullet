@@ -1,0 +1,139 @@
+name: 🔥 BULLET 24/7 RDP ULTRA FAST
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/25 * * * *'
+
+jobs:
+  rdp-runner:
+    runs-on: windows-latest
+    timeout-minutes: 340
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+      
+      - name: 🔧 RDP Setup
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+          netsh advfirewall firewall add rule name="RDP" dir=in action=allow protocol=TCP localport=3389 2>$null
+          Restart-Service TermService -Force
+          Write-Host "✅ RDP ready"
+      
+      - name: 👤 Create User
+        run: |
+          $pass = ConvertTo-SecureString "Bullet@123" -AsPlainText -Force
+          New-LocalUser -Name "bullethu" -Password $pass -AccountNeverExpires -PasswordNeverExpires -ErrorAction SilentlyContinue
+          Add-LocalGroupMember -Group "Administrators" -Member "bullethu" -ErrorAction SilentlyContinue
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "bullethu" -ErrorAction SilentlyContinue
+          Write-Host "✅ User: bullethu / Bullet@123"
+      
+      - name: 🌐 Tailscale
+        run: |
+          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi" -OutFile "$env:TEMP\ts.msi" -UseBasicParsing
+          Start-Process msiexec.exe -ArgumentList "/i","$env:TEMP\ts.msi","/quiet" -Wait
+          
+          $ts = "$env:ProgramFiles\Tailscale\tailscale.exe"
+          $i = 0
+          while (!(Test-Path $ts) -and $i -lt 10) { Start-Sleep 2; $i++ }
+          
+          & $ts up --authkey=${{ secrets.TAILSCALE_AUTHKEY }} --hostname=bullet-${{ github.run_number }}
+          
+          $ip = $null
+          $i = 0
+          while (!$ip -and $i -lt 15) {
+              $ip = & $ts ip -4
+              if ($ip) { break }
+              Start-Sleep 3
+              $i++
+          }
+          
+          echo "TAILSCALE_IP=$ip" >> $env:GITHUB_ENV
+          Write-Host "✅ IP: $ip"
+      
+      - name: 🐍 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: 📦 Packages
+        run: |
+          pip install requests --quiet
+          Write-Host "✅ Packages installed"
+      
+      - name: 🚀 Start Scripts
+        run: |
+          Write-Host "🚀 Starting scripts..."
+          
+          # Set env vars
+          $env:TG_TOKEN = "${{ secrets.TG_TOKEN }}"
+          $env:TG_ID = "${{ secrets.TG_ID }}"
+          
+          # Ultra-fast checker
+          if (Test-Path "bullet_ultra_fast.py") {
+              $bat = @"
+@echo off
+title BULLET ULTRA-FAST CHECKER
+color 0A
+set TG_TOKEN=${{ secrets.TG_TOKEN }}
+set TG_ID=${{ secrets.TG_ID }}
+python bullet_ultra_fast.py
+pause
+"@
+              Set-Content "start_ultra.bat" -Value $bat
+              Start-Process cmd -ArgumentList "/c","start_ultra.bat"
+              Write-Host "✅ Ultra-fast started"
+          }
+          
+          Start-Sleep 3
+          Write-Host "✅ All scripts running"
+      
+      - name: 📺 Info
+        run: |
+          Write-Host "`n$('='*60)"
+          Write-Host "🔥 BULLET 24/7 RDP - ACTIVE" -ForegroundColor Green
+          Write-Host "$('='*60)"
+          Write-Host "🌐 IP: $env:TAILSCALE_IP" -ForegroundColor Cyan
+          Write-Host "👤 User: bullethu" -ForegroundColor Yellow
+          Write-Host "🔑 Pass: Bullet@123" -ForegroundColor Yellow
+          Write-Host "⚡ Port: 3389"
+          Write-Host "$('='*60)"
+          Write-Host "🖥️ Scripts: VISIBLE WINDOWS" -ForegroundColor Green
+          Write-Host "$('='*60)`n"
+      
+      - name: 💾 Keep Alive
+        run: |
+          $start = Get-Date
+          $max = 330
+          
+          while (((Get-Date) - $start).TotalMinutes -lt $max) {
+              $elapsed = [math]::Floor(((Get-Date) - $start).TotalMinutes)
+              $left = $max - $elapsed
+              
+              if ($elapsed % 5 -eq 0 -and $elapsed -gt 0) {
+                  $cmd = @(Get-Process cmd -ErrorAction SilentlyContinue).Count
+                  $py = @(Get-Process python -ErrorAction SilentlyContinue).Count
+                  Write-Host "[$(Get-Date -Format 'HH:mm:ss')] ✅ ${elapsed}m / ${left}m | CMD:$cmd PY:$py"
+              }
+              
+              Start-Sleep 30
+          }
+      
+      - name: 🔄 Next
+        if: always()
+        continue-on-error: true
+        run: |
+          $h = @{
+              Authorization = "token ${{ secrets.GITHUB_TOKEN }}"
+              Accept = "application/vnd.github.v3+json"
+          }
+          $b = @{ ref = "main" } | ConvertTo-Json
+          
+          try {
+              Invoke-RestMethod -Uri "https://api.github.com/repos/${{ github.repository }}/actions/workflows/rdp-ultra.yml/dispatches" -Method POST -Headers $h -Body $b -ContentType "application/json"
+              Write-Host "✅ Next triggered"
+          } catch {
+              Write-Host "ℹ️ Cron will restart"
+          }
